@@ -3,11 +3,34 @@ Models
 ------
 """
 
+from darts.models.forecasting.ensemble_model import EnsembleModel
+from darts.models.forecasting.baselines import NaiveEnsembleModel
+from darts.models.filtering.moving_average_filter import MovingAverageFilter
+from darts.models.filtering.kalman_filter import KalmanFilter
+from darts.models.filtering.gaussian_process_filter import GaussianProcessFilter
+from darts.models.forecasting.varima import VARIMA
+from darts.models.forecasting.theta import FourTheta, Theta
+from darts.models.forecasting.tbats_model import BATS, TBATS
+from darts.models.forecasting.regression_model import RegressionModel
+from darts.models.forecasting.regression_ensemble_model import RegressionEnsembleModel
+from darts.models.forecasting.random_forest import RandomForest
+from darts.models.forecasting.linear_regression_model import LinearRegressionModel
+from darts.models.forecasting.kalman_forecaster import KalmanForecaster
+from darts.models.forecasting.fft import FFT
+from darts.models.forecasting.exponential_smoothing import ExponentialSmoothing
+from darts.models.forecasting.baselines import (
+    NaiveDrift,
+    NaiveMean,
+    NaiveMovingAverage,
+    NaiveSeasonal,
+)
+from darts.models.forecasting.auto_arima import AutoARIMA
+from darts.models.forecasting.arima import ARIMA
+from darts.models.utils import NotImportedModule
 from darts.logging import get_logger
 
 logger = get_logger(__name__)
 
-from darts.models.utils import NotImportedModule
 
 try:
     # `lightgbm` needs to be imported first to avoid segmentation fault
@@ -16,24 +39,6 @@ except ModuleNotFoundError:
     LightGBMModel = NotImportedModule(module_name="LightGBM", warn=False)
 
 # Forecasting
-from darts.models.forecasting.arima import ARIMA
-from darts.models.forecasting.auto_arima import AutoARIMA
-from darts.models.forecasting.baselines import (
-    NaiveDrift,
-    NaiveMean,
-    NaiveMovingAverage,
-    NaiveSeasonal,
-)
-from darts.models.forecasting.exponential_smoothing import ExponentialSmoothing
-from darts.models.forecasting.fft import FFT
-from darts.models.forecasting.kalman_forecaster import KalmanForecaster
-from darts.models.forecasting.linear_regression_model import LinearRegressionModel
-from darts.models.forecasting.random_forest import RandomForest
-from darts.models.forecasting.regression_ensemble_model import RegressionEnsembleModel
-from darts.models.forecasting.regression_model import RegressionModel
-from darts.models.forecasting.tbats_model import BATS, TBATS
-from darts.models.forecasting.theta import FourTheta, Theta
-from darts.models.forecasting.varima import VARIMA
 
 try:
     from darts.models.forecasting.block_rnn_model import BlockRNNModel
@@ -52,6 +57,7 @@ try:
     from darts.models.forecasting.tide_model import TiDEModel
     from darts.models.forecasting.transformer_model import TransformerModel
     from darts.models.forecasting.tsmixer_model import TSMixerModel
+    from darts.models.forecasting.tsmixer_resid_model import TSMixerResidModel
 except ModuleNotFoundError:
     logger.warning(
         "Support for Torch based models not available. "
@@ -60,9 +66,11 @@ except ModuleNotFoundError:
     )
     BlockRNNModel = NotImportedModule(module_name="(Py)Torch", warn=False)
     DLinearModel = NotImportedModule(module_name="(Py)Torch", warn=False)
-    GlobalNaiveAggregate = NotImportedModule(module_name="(Py)Torch", warn=False)
+    GlobalNaiveAggregate = NotImportedModule(
+        module_name="(Py)Torch", warn=False)
     GlobalNaiveDrift = NotImportedModule(module_name="(Py)Torch", warn=False)
-    GlobalNaiveSeasonal = NotImportedModule(module_name="(Py)Torch", warn=False)
+    GlobalNaiveSeasonal = NotImportedModule(
+        module_name="(Py)Torch", warn=False)
     NBEATSModel = NotImportedModule(module_name="(Py)Torch", warn=False)
     NHiTSModel = NotImportedModule(module_name="(Py)Torch", warn=False)
     NLinearModel = NotImportedModule(module_name="(Py)Torch", warn=False)
@@ -98,25 +106,24 @@ except ImportError:
         "installing it."
     )
     Croston = NotImportedModule(module_name="StatsForecast", warn=False)
-    StatsForecastAutoARIMA = NotImportedModule(module_name="StatsForecast", warn=False)
-    StatsForecastAutoCES = NotImportedModule(module_name="StatsForecast", warn=False)
-    StatsForecastAutoETS = NotImportedModule(module_name="StatsForecast", warn=False)
-    StatsForecastAutoTheta = NotImportedModule(module_name="StatsForecast", warn=False)
+    StatsForecastAutoARIMA = NotImportedModule(
+        module_name="StatsForecast", warn=False)
+    StatsForecastAutoCES = NotImportedModule(
+        module_name="StatsForecast", warn=False)
+    StatsForecastAutoETS = NotImportedModule(
+        module_name="StatsForecast", warn=False)
+    StatsForecastAutoTheta = NotImportedModule(
+        module_name="StatsForecast", warn=False)
 
 try:
     from darts.models.forecasting.xgboost import XGBModel
 except ImportError:
     XGBModel = NotImportedModule(module_name="XGBoost")
 
-from darts.models.filtering.gaussian_process_filter import GaussianProcessFilter
-from darts.models.filtering.kalman_filter import KalmanFilter
 
 # Filtering
-from darts.models.filtering.moving_average_filter import MovingAverageFilter
-from darts.models.forecasting.baselines import NaiveEnsembleModel
 
 # Ensembling
-from darts.models.forecasting.ensemble_model import EnsembleModel
 
 __all__ = [
     "LightGBMModel",
@@ -152,6 +159,7 @@ __all__ = [
     "TiDEModel",
     "TransformerModel",
     "TSMixerModel",
+    "TSMixerResidModel",
     "Prophet",
     "CatBoostModel",
     "Croston",
