@@ -67,6 +67,100 @@ def _time_to_feature(x: torch.Tensor) -> torch.Tensor:
     return x.permute(0, 2, 1)
 
 
+class ResidualProjectUp(nn.Module):
+    def __init__(self, in_channels: int, out_channels: int, axis: int = -1):
+        """
+        Expands the feature dimension of a Tensor by projecting the input to a higher dimension and adding it to the
+        original Tensor. This allows for residual connections in the feature dimension even if a larger latent space
+        is used.
+        """
+        super().__init__()
+        assert out_channels >= in_channels, "This layer only makes sense when expanding a feature dimension."
+        self.axis = axis
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+
+        if in_channels != out_channels:
+            self.proj = nn.Linear(in_channels, out_channels)
+        else:
+            self.proj = nn.Identity()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.axis == -1:
+            x_proj = self.proj(x)
+            x_proj = torch.cat([x, torch.zeros_like(x_proj)[
+                               :, :, self.in_channels:]], axis=-1) + x_proj
+            return x_proj
+        else:
+            x = torch.swapaxes(x, self.axis, -1)
+            x_proj = self.proj(x)
+            x_proj = torch.cat([x, torch.zeros_like(x_proj)[
+                               :, :, self.in_channels:]], axis=-1) + x_proj
+            return torch.swapaxes(x_proj, self.axis, -1)
+
+
+class ResidualSlice(nn.Module):
+    def __init__(self, in_channels: int, out_channels: int, axis: int = -1, keep: str = "first", channels_to_keep=None, oversample=None):
+        """
+        Slices out a subset of the feature dimension of a Tensor by projecting the input to a lower dimension
+        and adding a subset of the original Tensor. This is intended to be used in conjunction with a
+        ResidualProjectUp layer to maintain a residual connection in the original feature dimension even if a
+        larger latent space is used.
+
+        Parameters
+        ----------
+        in_channels
+            The number of input channels to the layer.
+        out_channels
+            The number of output channels from the layer. This should be less than or equal to `in_channels`.
+        axis
+            The axis along which to slice the feature dimension. Default: -1.
+        keep
+            Whether to keep the first or last channels of the input. Default: "first".
+        oversample
+            The number of times to oversample the output. Default: None.
+            The intended use is for nondeterministic models that wish to sample multiple times from the same input.
+
+        """
+        super().__init__()
+        # assert in_channels >= out_channels, "This layer only makes sense when reducing a feature dimension."
+        self.axis = axis
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.keep = keep
+        self.samples = oversample if oversample is not None else 1
+
+        if channels_to_keep is None:
+            self.channels_to_keep = out_channels
+            assert self.channels_to_keep <= in_channels, "channels_to_keep must be less than or equal to in_channels"
+        else:
+            self.channels_to_keep = channels_to_keep
+
+        assert keep in [
+            "first", "last"], "Invalid value for keep. Must be one of ['first', 'last']"
+
+        if in_channels != out_channels or oversample:
+            self.proj = nn.Linear(
+                in_channels, out_channels * self.samples)
+        else:
+            self.proj = nn.Identity()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.axis != -1:
+            x = torch.swapaxes(x, self.axis, -1)
+        x_proj = self.proj(x)
+        if self.keep == "first":
+            x_resid = torch.concat([x[:, :, :self.channels_to_keep], torch.zeros_like(
+                x_proj)[:, :, self.channels_to_keep:]], axis=-1)
+        elif self.keep == "last":
+            x_resid = torch.concat([torch.zeros_like(x_proj)[:, :, :-self.channels_to_keep],
+                                    x[:, :, -self.channels_to_keep:]], axis=-1)
+        x = x_proj + x_resid
+        if self.axis != -1:
+            x = torch.swapaxes(x, self.axis, -1)
+        return x
+
+
 class TimeBatchNorm2d(nn.BatchNorm2d):
     def __init__(self, *args, **kwargs):
         """A batch normalization layer that normalizes over the last two dimensions of a Tensor."""
@@ -408,6 +502,18 @@ class _TSMixerResidModule(PLMixedCovariatesModule):
         self.fc_hist = nn.Linear(
             self.input_chunk_length, self.output_chunk_length)
 
+        # self.target_feature_project_up = ResidualProjectUp(in_channels=input_dim, out_channels=hidden_size)
+
+        self.target_feature_project_up = ResidualSlice(
+            in_channels=input_dim+past_cov_dim+future_cov_dim, out_channels=hidden_size, axis=-1, keep='first', channels_to_keep=input_dim)
+
+        self.slice_down_forecast = ResidualSlice(
+            in_channels=self.sequence_length, out_channels=self.output_chunk_length,
+            axis=1, keep="last")
+
+        self.slice_down_targets = ResidualSlice(
+            in_channels=hidden_size, out_channels=output_dim, axis=-1, keep='first', oversample=None)  # nr_params
+
         # TODO do we want a seperate past and future mixing layer?
         self.feature_mixing = (_FeatureMixing(
             sequence_length=self.sequence_length,
@@ -497,6 +603,8 @@ class _TSMixerResidModule(PLMixedCovariatesModule):
         # (B, L, H)
         x_hist_future = x[:, :, -self.future_cov_dim:]
 
+        #
+
         # (B, T, H - F)
         x = x[:, :, :-self.future_cov_dim]
 
@@ -511,8 +619,11 @@ class _TSMixerResidModule(PLMixedCovariatesModule):
         # Concat x to x_future along the feature dimension
         x = torch.cat([x, x_future], dim=2)
 
-        # Reshape to hidden size
-        x = self.feature_mixing(x)
+        x_targets = x[:, :, :self.output_dim]
+
+        # TODO update this to use a single operation for feature mixing
+        x = self.target_feature_project_up(
+            x)  # + self.feature_mixing(x)
 
         if self.static_cov_dim:
             # (B, C, S) -> (B, 1, C * S)
@@ -524,11 +635,11 @@ class _TSMixerResidModule(PLMixedCovariatesModule):
             # conditional mixer layers with static covariates (B, SL, 2 * H_S), (B, SL, C * S) -> (B, SL, H_S)
             x = mixing_layer(x, x_static=x_static)
 
-        # Slice out future
-        x = x[:, -self.output_chunk_length:, :]
-
-        # linear transformation to generate the forecast (B, T, H_S) -> (B, T, C * N_P)
-
+        # Slice out future  # TODO use residual_slice_down
+        x = self.slice_down_forecast(x)
+        # Does not seem to work with likelihood, need to investigate
+        # if self.nr_params > 1 else x = self.slice_down_targets(x)
+        # Necessary for likelihood TODO change name to slice_down_targets and use proper slice down for deterministic models
         x = self.fc_out(x)
         # (B, T, C * N_P) -> (B, T, C, N_P)
         x = x.view(-1, self.output_chunk_length,
